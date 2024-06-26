@@ -1,0 +1,24 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-c",
+      "-std=c++17",
+      "-g",
+      "-I/usr/lib/wx/include/gtk3-unicode-3.2",
+      "-I/usr/include/wx-3.2",
+      "-DWXUSINGDLL",
+      "-D__WXGTK3__",
+      "-D__WXGTK__",
+      "-D_FILE_OFFSET_BITS=64",
+      "-pthread",
+      "-pthread",
+      "-o",
+      "build/app",
+      "src/main.cpp"
+    ],
+    "directory": "/home/dominik/projects/vtt",
+    "file": "/home/dominik/projects/vtt/src/main.cpp",
+    "output": "/home/dominik/projects/vtt/build/app"
+  }
+]
