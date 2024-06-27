@@ -1,6 +1,7 @@
 #include "main_frame.h"
 #include "canvas.h"
 #include "tabs_window.h"
+#include "vulkan_window.h"
 #include "wx/sizer.h"
 
 BEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -20,7 +21,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxHORIZONTAL);
   
-  Canvas *canvas = new Canvas(this);
+  VulkanWindow *canvas = new VulkanWindow(this);
   mainSizer->Add(
       canvas,
       wxSizerFlags(1).Expand());
