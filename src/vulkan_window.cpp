@@ -93,9 +93,13 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
 
     create_render_pass();
     create_graphics_pipeline();
+    create_frame_buffers();
 }
 
 VulkanWindow::~VulkanWindow() {
+    for (VkFramebuffer fb: framebuffers) {
+	vkDestroyFramebuffer(vkb_device.device, fb, nullptr);
+    }
     vkDestroyPipeline(vkb_device.device, pipeline, nullptr);
     vkDestroyPipelineLayout(vkb_device.device, pipelineLayout, nullptr);
     vkDestroyRenderPass(vkb_device.device, renderPass, nullptr);
@@ -293,5 +297,30 @@ void VulkanWindow::create_graphics_pipeline() {
 
     vkDestroyShaderModule(vkb_device.device, vert_module, nullptr);
 }
+
+void VulkanWindow::create_frame_buffers() {
+    images = vkb_swapchain.get_images().value();
+    image_views = vkb_swapchain.get_image_views().value();
+    framebuffers.resize(image_views.size());
+
+    for (size_t i = 0; i < image_views.size(); i++) {
+	VkImageView attachments[] = { image_views[i] };
+
+        VkFramebufferCreateInfo framebuffer_info = {};
+        framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebuffer_info.renderPass = renderPass;
+        framebuffer_info.attachmentCount = 1;
+        framebuffer_info.pAttachments = attachments;
+        framebuffer_info.width = vkb_swapchain.extent.width;
+        framebuffer_info.height = vkb_swapchain.extent.height;
+        framebuffer_info.layers = 1;
+
+        if (vkCreateFramebuffer(vkb_device.device, &framebuffer_info, nullptr, &framebuffers[i]) != VK_SUCCESS) {
+	    throw std::runtime_error("can't create framebuffer");
+        }
+    }
+}
+
+
 
 

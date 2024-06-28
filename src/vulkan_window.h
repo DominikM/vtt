@@ -1,5 +1,6 @@
 #include "VkBootstrap.h"
 #include "wx/event.h"
+#include <vector>
 #include <vulkan/vulkan_core.h>
 #include <wx/wx.h>
 
@@ -19,11 +20,15 @@ private:
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
     VkPipeline pipeline;
+    std::vector<VkImage> images;
+    std::vector<VkImageView> image_views;
+    std::vector<VkFramebuffer> framebuffers;
   
 
     void create_shaders();
     void create_render_pass();
     void create_graphics_pipeline();
+    void create_frame_buffers();
   
 
     void OnPaint(wxPaintEvent& event);
