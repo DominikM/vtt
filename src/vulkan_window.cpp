@@ -94,15 +94,19 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     create_render_pass();
     create_graphics_pipeline();
     create_frame_buffers();
+    create_command_pool();
+    create_command_buffers();
 }
 
 VulkanWindow::~VulkanWindow() {
+    vkDestroyCommandPool(vkb_device.device, command_pool, nullptr);
     for (VkFramebuffer fb: framebuffers) {
 	vkDestroyFramebuffer(vkb_device.device, fb, nullptr);
     }
     vkDestroyPipeline(vkb_device.device, pipeline, nullptr);
     vkDestroyPipelineLayout(vkb_device.device, pipelineLayout, nullptr);
     vkDestroyRenderPass(vkb_device.device, renderPass, nullptr);
+    vkb_swapchain.destroy_image_views(image_views);
     vkb::destroy_swapchain(vkb_swapchain);
     vkb::destroy_device(vkb_device);
     vkb::destroy_surface(vkb_instance, vk_surface);
@@ -110,7 +114,6 @@ VulkanWindow::~VulkanWindow() {
 }
 
 void VulkanWindow::OnPaint(wxPaintEvent& event) {
-    
 }
 
 void VulkanWindow::create_shaders() {
@@ -321,6 +324,73 @@ void VulkanWindow::create_frame_buffers() {
     }
 }
 
+void VulkanWindow::create_command_pool() {
+    VkCommandPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    pool_info.queueFamilyIndex = vkb_device.get_queue_index(vkb::QueueType::graphics).value();
 
+    if (vkCreateCommandPool(vkb_device.device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
+	throw std::runtime_error("can't create command pool");
+    }
+}
 
+void VulkanWindow::create_command_buffers() {
+    command_buffers.resize(framebuffers.size());
+
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = command_pool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = (uint32_t)command_buffers.size();
+
+    if (vkAllocateCommandBuffers(vkb_device.device, &allocInfo, command_buffers.data()) != VK_SUCCESS) {
+        throw std::runtime_error("can't allocate command buffers");
+    }
+
+    for (size_t i = 0; i < command_buffers.size(); i++) {
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        if (vkBeginCommandBuffer(command_buffers[i], &begin_info) != VK_SUCCESS) {
+	    throw std::runtime_error("can't begin command buffer");
+        }
+
+        VkRenderPassBeginInfo render_pass_info = {};
+        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        render_pass_info.renderPass = renderPass;
+        render_pass_info.framebuffer = framebuffers[i];
+        render_pass_info.renderArea.offset = { 0, 0 };
+        render_pass_info.renderArea.extent = vkb_swapchain.extent;
+        VkClearValue clearColor{ { { 0.0f, 0.0f, 0.0f, 1.0f } } };
+        render_pass_info.clearValueCount = 1;
+        render_pass_info.pClearValues = &clearColor;
+
+        VkViewport viewport = {};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = (float) vkb_swapchain.extent.width;
+        viewport.height = (float) vkb_swapchain.extent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        VkRect2D scissor = {};
+        scissor.offset = { 0, 0 };
+        scissor.extent = vkb_swapchain.extent;
+
+        vkCmdSetViewport(command_buffers[i], 0, 1, &viewport);
+        vkCmdSetScissor(command_buffers[i], 0, 1, &scissor);
+
+        vkCmdBeginRenderPass(command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        vkCmdDraw(command_buffers[i], 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(command_buffers[i]);
+
+        if (vkEndCommandBuffer(command_buffers[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to record command buffer");
+        }
+    }
+}
 
