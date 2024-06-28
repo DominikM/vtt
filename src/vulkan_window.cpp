@@ -180,7 +180,7 @@ VkShaderModule create_shader_module(VkDevice& device, const std::vector<char>& c
 }
 
 void VulkanWindow::create_graphics_pipeline() {
-    auto vert_code = read_file("/home/dominik/projects/vtt/build/shaders/shader.vert.spv");
+    auto vert_code = read_file("build/shaders/shader.vert.spv");
 
     VkShaderModule vert_module = create_shader_module(vkb_device.device, vert_code);
     if (vert_module == VK_NULL_HANDLE) {
