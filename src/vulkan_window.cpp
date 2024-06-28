@@ -96,6 +96,7 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     create_frame_buffers();
     create_command_pool();
     create_command_buffers();
+    create_sync_objects();
 }
 
 VulkanWindow::~VulkanWindow() {
@@ -390,6 +391,28 @@ void VulkanWindow::create_command_buffers() {
 
         if (vkEndCommandBuffer(command_buffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to record command buffer");
+        }
+    }
+}
+
+void VulkanWindow::create_sync_objects() {
+    available_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    finished_semaphore.resize(MAX_FRAMES_IN_FLIGHT);
+    in_flight_fences.resize(MAX_FRAMES_IN_FLIGHT);
+    image_in_flight.resize(vkb_swapchain.image_count, VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semaphore_info = {};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fence_info = {};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateSemaphore(vkb_device.device, &semaphore_info, nullptr, &available_semaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(vkb_device.device, &semaphore_info, nullptr, &finished_semaphore[i]) != VK_SUCCESS ||
+            vkCreateFence(vkb_device.device, &fence_info, nullptr, &in_flight_fences[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create sync objects");
         }
     }
 }
