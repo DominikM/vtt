@@ -6,18 +6,28 @@
 #include <vulkan/vulkan.h>
 
 class VulkanWindow : public wxWindow {
- public:
-  VulkanWindow(wxWindow *parent);
-  ~VulkanWindow();
- private:
-  vkb::Instance vkb_instance;
-  vkb::Device vkb_device;
-  vkb::Swapchain vkb_swapchain;
-  VkSurfaceKHR vk_surface;
-  VkQueue graphics_queue;
-  VkQueue present_queue;
+public:
+    VulkanWindow(wxWindow *parent);
+    ~VulkanWindow();
+private:
+    vkb::Instance vkb_instance;
+    vkb::Device vkb_device;
+    vkb::Swapchain vkb_swapchain;
+    VkSurfaceKHR vk_surface;
+    VkQueue graphics_queue;
+    VkQueue present_queue;
+    VkRenderPass renderPass;
+    VkPipelineLayout pipelineLayout;
+    VkPipeline pipeline;
+  
 
-  void OnPaint(wxPaintEvent& event);
+    void create_shaders();
+    void create_render_pass();
+    void create_graphics_pipeline();
+  
 
-  wxDECLARE_EVENT_TABLE();
+    void OnPaint(wxPaintEvent& event);
+  
+
+    wxDECLARE_EVENT_TABLE();
 };
