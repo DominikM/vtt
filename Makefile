@@ -11,7 +11,7 @@ GTK_CXXFLAGS := $(shell pkg-config --cflags gtk+-3.0)
 GTK_LIBS := $(shell pkg-config --libs gtk+-3.0)
 
 CXXFLAGS := -std=c++17 -g $(WX_CXXFLAGS) $(GTK_CXXFLAGS)
-LDFLAGS := -lvulkan -ldl $(WX_LIBS) $(GTK_LIBS)
+LDFLAGS := -lvulkan -ldl $(WX_LIBS) $(GTK_LIBS) -lwayland-client
 
 SRCS := $(shell find $(SRC_DIRS) -name '*.cpp')
 OBJS := $(SRCS:%=$(BUILD_DIR)/%.o)

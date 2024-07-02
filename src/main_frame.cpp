@@ -1,8 +1,9 @@
 #include "main_frame.h"
 #include "canvas.h"
 #include "tabs_window.h"
-#include "vulkan_window.h"
+#include "wx/event.h"
 #include "wx/sizer.h"
+#include <cstddef>
 
 BEGIN_EVENT_TABLE(MainFrame, wxFrame)
 EVT_MENU(wxID_EXIT, MainFrame::OnQuit)
@@ -13,6 +14,7 @@ void MainFrame::OnQuit(wxCommandEvent& event) {
 }
 
 MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) {
+  SetDoubleBuffered(false);
   wxMenu *helpMenu = new wxMenu();
   wxMenuBar *menuBar = new wxMenuBar();
   menuBar->Append(helpMenu, wxT("&Help"));
@@ -21,9 +23,9 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxHORIZONTAL);
   
-  VulkanWindow *canvas = new VulkanWindow(this);
+  vulkan_window = new VulkanWindow(this);
   mainSizer->Add(
-      canvas,
+      vulkan_window,
       wxSizerFlags(1).Expand());
 
   TabsWindow *tabs_window = new TabsWindow(this);
@@ -32,4 +34,10 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
       wxSizerFlags(0).Expand());
 
   SetSizerAndFit(mainSizer);
+
+  Bind(wxEVT_PAINT, &MainFrame::OnPaint, this);
+}
+
+void MainFrame::OnPaint(wxPaintEvent& event) {
+  vulkan_window->OnPaint(event);
 }

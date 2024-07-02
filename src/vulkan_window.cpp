@@ -1,27 +1,34 @@
 #include "vulkan_window.h"
-#include "VkBootstrapDispatch.h"
+#include "wx/dcclient.h"
 #include "wx/event.h"
-#include "wx/gtk/window.h"
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 
 #include <string>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_wayland.h>
-
-#ifdef __LINUX__
-
-#include <gtk-3.0/gtk/gtk.h>
-#include <gtk-3.0/gdk/gdkwayland.h>
-#include <gtk-3.0/gdk/gdkx.h>
-
 #include "VkBootstrap.h"
+#include "wx/gdicmn.h"
+#include <gdk/gdkwayland.h>
+#include <gdk/gdkx.h>
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
+#include <vulkan/vulkan_core.h>
+#include <wayland-client-core.h>
+#include <wayland-client-protocol.h>
+#include <wayland-client.h>
 
-#endif
-
-wxBEGIN_EVENT_TABLE(VulkanWindow, wxWindow)
-EVT_PAINT(VulkanWindow::OnPaint)
-wxEND_EVENT_TABLE()
+void handle_registry(void* data, struct wl_registry* registry, uint32_t name,
+			    const char* interface, uint32_t version) {
+    VulkanWindow *vk = (VulkanWindow *) data;
+    if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
+	vk->subcompositor = (struct wl_subcompositor*) wl_registry_bind(registry, name, &wl_subcompositor_interface, 1);
+    }
+}
 
 VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     vkb::InstanceBuilder builder;
@@ -29,33 +36,54 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
 	.request_validation_layers()
 	.use_default_debug_messenger()
 	.build();
-
+    
     if (!inst_ret) {
 	throw std::runtime_error("failed to initalize vulkan instance");
     }
-
     vkb_instance = inst_ret.value();
+
     
-#ifdef __LINUX__
     GtkWidget *gtk_widget = GetHandle();
     gtk_widget_realize(gtk_widget);
     GdkWindow *gdk_window = gtk_widget_get_window(gtk_widget);
-    GdkDisplay *gdk_display = gtk_widget_get_display(gtk_widget);
+    gdk_display = gtk_widget_get_display(gtk_widget);
 
-    auto wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
-    auto wl_display = gdk_wayland_display_get_wl_display(gdk_display);
+    wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
+    wl_display = gdk_wayland_display_get_wl_display(gdk_display);
+    wl_registry *registry = wl_display_get_registry(wl_display);
+
+    struct wl_registry_listener registry_listener = {
+	.global = &handle_registry
+    };
+
+    wl_registry_add_listener(registry, &registry_listener, this);
+    wl_display_roundtrip(wl_display);
+
+    struct wl_compositor* compositor = gdk_wayland_display_get_wl_compositor(gdk_display);
+    subsurface_surface = wl_compositor_create_surface(compositor);
+    subsurface_subsurface = wl_subcompositor_get_subsurface(subcompositor, subsurface_surface, wl_surface);
 
     VkWaylandSurfaceCreateInfoKHR createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = nullptr;
     createInfo.flags = 0;
     createInfo.display = wl_display;
-    createInfo.surface = wl_surface;
+    createInfo.surface = subsurface_surface;
 
     if (vkCreateWaylandSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
 	throw std::runtime_error("failed to create window surface!");
     }
-#endif
+
+    // VkXlibSurfaceCreateInfoKHR createInfo{};
+    // createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+    // createInfo.pNext = nullptr;
+    // createInfo.flags = 0;
+    // createInfo.dpy = gdk_x11_display_get_xdisplay(gdk_display);
+    // createInfo.window = gdk_x11_window_get_xid(gdk_window);
+
+    // if (vkCreateXlibSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
+    // 	throw std::runtime_error("blah");
+    // }
 
     vkb::PhysicalDeviceSelector selector{ vkb_instance };
     auto phys_ret = selector.set_surface(vk_surface)
@@ -84,22 +112,24 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     }
     present_queue = present_queue_ret.value();
 
-    vkb::SwapchainBuilder swapchain_builder{ vkb_device };
-    auto swap_ret = swapchain_builder.set_desired_extent(500, 500).build ();
-    if (!swap_ret){
-	throw std::runtime_error("Failed to create swapchain");
-    }
-    vkb_swapchain = swap_ret.value();
-
+    create_swapchain();
     create_render_pass();
     create_graphics_pipeline();
     create_frame_buffers();
     create_command_pool();
     create_command_buffers();
     create_sync_objects();
+
+    Bind(wxEVT_SIZE, &VulkanWindow::OnResize, this);
 }
 
 VulkanWindow::~VulkanWindow() {
+    for (auto semaphore: available_semaphores) {
+	vkDestroySemaphore(vkb_device.device, semaphore, nullptr);
+    }
+    for (auto semaphore: finished_semaphore) {
+	vkDestroySemaphore(vkb_device.device, semaphore, nullptr);
+    }
     vkDestroyCommandPool(vkb_device.device, command_pool, nullptr);
     for (VkFramebuffer fb: framebuffers) {
 	vkDestroyFramebuffer(vkb_device.device, fb, nullptr);
@@ -114,13 +144,101 @@ VulkanWindow::~VulkanWindow() {
     vkb::destroy_instance(vkb_instance);
 }
 
-void VulkanWindow::OnPaint(wxPaintEvent& event) {
+void VulkanWindow::create_swapchain() {
+    vkb::SwapchainBuilder swapchain_builder{ vkb_device };
+    auto swap_ret = swapchain_builder
+	.set_desired_extent(200, 200)
+	.set_old_swapchain(vkb_swapchain)
+	.build();
+    if (!swap_ret){
+	vkb_swapchain.swapchain = VK_NULL_HANDLE;
+    }
+    vkb::destroy_swapchain(vkb_swapchain);
+    vkb_swapchain = swap_ret.value();
 }
 
-void VulkanWindow::create_shaders() {
-    VkShaderModuleCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = 0;
+void VulkanWindow::OnPaint(wxPaintEvent& event) {
+    printf("hello from OnPaint\n");
+    vkWaitForFences(vkb_device.device, 1, &in_flight_fences[current_frame], VK_TRUE, UINT64_MAX);
+    uint32_t image_index;
+    VkResult result = vkAcquireNextImageKHR(
+        vkb_device.device, vkb_swapchain.swapchain, UINT64_MAX, available_semaphores[current_frame], VK_NULL_HANDLE, &image_index);
+    
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreate_swapchain();
+	return;
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw std::runtime_error("failed to acquire swapchain image.");
+    }
+
+    if (image_in_flight[image_index] != VK_NULL_HANDLE) {
+        vkWaitForFences(vkb_device.device, 1, &image_in_flight[image_index], VK_TRUE, UINT64_MAX);
+    }
+    
+    image_in_flight[image_index] = in_flight_fences[current_frame];
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    VkSemaphore wait_semaphores[] = { available_semaphores[current_frame] };
+    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = wait_semaphores;
+    submitInfo.pWaitDstStageMask = wait_stages;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &command_buffers[image_index];
+
+    VkSemaphore signal_semaphores[] = { finished_semaphore[current_frame] };
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signal_semaphores;
+
+    vkResetFences(vkb_device.device, 1, &in_flight_fences[current_frame]);
+
+    if (vkQueueSubmit(graphics_queue, 1, &submitInfo, in_flight_fences[current_frame]) != VK_SUCCESS) {
+        return;
+    }
+
+    VkPresentInfoKHR present_info = {};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = signal_semaphores;
+
+    VkSwapchainKHR swapChains[] = { vkb_swapchain };
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = swapChains;
+
+    present_info.pImageIndices = &image_index;
+    result = vkQueuePresentKHR(present_queue, &present_info);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        recreate_swapchain();
+	return;
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("failed to present swapchain image");
+    }
+
+    current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+    printf("done with paint\n");
+    //wl_surface_commit(wl_surface);
+}
+
+void VulkanWindow::recreate_swapchain() {
+    vkDeviceWaitIdle(vkb_device.device);
+
+    vkDestroyCommandPool(vkb_device.device, command_pool, nullptr);
+
+    for (auto framebuffer : framebuffers) {
+        vkDestroyFramebuffer(vkb_device.device, framebuffer, nullptr);
+    }
+    vkb_swapchain.destroy_image_views(image_views);
+
+    create_swapchain();
+    create_frame_buffers();
+    create_command_pool();
+    create_command_buffers();
+    resized = false;
 }
 
 void VulkanWindow::create_render_pass() {
@@ -143,12 +261,22 @@ void VulkanWindow::create_render_pass() {
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
 
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
     VkRenderPassCreateInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassInfo.attachmentCount = 1;
     renderPassInfo.pAttachments = &colorAttachment;
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
 
     if (vkCreateRenderPass(vkb_device.device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
 	throw std::runtime_error("failed to create render pass!");
@@ -188,10 +316,12 @@ VkShaderModule create_shader_module(VkDevice& device, const std::vector<char>& c
 }
 
 void VulkanWindow::create_graphics_pipeline() {
-    auto vert_code = read_file("build/shaders/shader.vert.spv");
+    auto vert_code = read_file("/home/dominik/projects/vtt/build/shaders/shader.vert.spv");
+    auto frag_code = read_file("/home/dominik/projects/vtt/build/shaders/shader.frag.spv");
 
     VkShaderModule vert_module = create_shader_module(vkb_device.device, vert_code);
-    if (vert_module == VK_NULL_HANDLE) {
+    VkShaderModule frag_module = create_shader_module(vkb_device.device, frag_code);
+    if (vert_module == VK_NULL_HANDLE || frag_module == VK_NULL_HANDLE) {
         throw std::runtime_error("failed to create shader module");
     }
 
@@ -201,7 +331,13 @@ void VulkanWindow::create_graphics_pipeline() {
     vert_stage_info.module = vert_module;
     vert_stage_info.pName = "main";
 
-    VkPipelineShaderStageCreateInfo shader_stages[] = { vert_stage_info };
+    VkPipelineShaderStageCreateInfo frag_stage_info = {};
+    frag_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    frag_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    frag_stage_info.module = frag_module;
+    frag_stage_info.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shader_stages[] = { vert_stage_info, frag_stage_info };
 
     VkPipelineVertexInputStateCreateInfo vertex_input_info = {};
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -281,7 +417,7 @@ void VulkanWindow::create_graphics_pipeline() {
 
     VkGraphicsPipelineCreateInfo pipeline_info = {};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.stageCount = 1;
+    pipeline_info.stageCount = 2;
     pipeline_info.pStages = shader_stages;
     pipeline_info.pVertexInputState = &vertex_input_info;
     pipeline_info.pInputAssemblyState = &input_assembly;
@@ -299,6 +435,7 @@ void VulkanWindow::create_graphics_pipeline() {
         throw std::runtime_error("failed to create pipline");
     }
 
+    vkDestroyShaderModule(vkb_device.device, frag_module, nullptr);
     vkDestroyShaderModule(vkb_device.device, vert_module, nullptr);
 }
 
@@ -308,6 +445,7 @@ void VulkanWindow::create_frame_buffers() {
     framebuffers.resize(image_views.size());
 
     for (size_t i = 0; i < image_views.size(); i++) {
+	printf("hello from framebuffer creation\n");
 	VkImageView attachments[] = { image_views[i] };
 
         VkFramebufferCreateInfo framebuffer_info = {};
@@ -333,6 +471,8 @@ void VulkanWindow::create_command_pool() {
     if (vkCreateCommandPool(vkb_device.device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
 	throw std::runtime_error("can't create command pool");
     }
+
+    printf("created command pool\n");
 }
 
 void VulkanWindow::create_command_buffers() {
@@ -417,3 +557,17 @@ void VulkanWindow::create_sync_objects() {
     }
 }
 
+void VulkanWindow::OnResize(wxSizeEvent& event) {
+    resized = true;
+    printf("hello from OnResize\n");
+    wxSize size = GetSize();
+    if (size.GetWidth() == 0 || size.GetHeight() == 0) {
+        return;
+    }
+    recreate_swapchain();
+    //wxRect refreshRect(size);
+    //RefreshRect(refreshRect, false);
+    printf("done with resize\n");
+    resized = false;
+    wl_surface_commit(wl_surface);
+}
