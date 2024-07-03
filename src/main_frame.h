@@ -1,5 +1,6 @@
 #include "wx/event.h"
 #include "vulkan_window.h"
+#include <thread>
 #include <wx/wx.h>
 #include <wx/splitter.h>
 
@@ -10,8 +11,7 @@ class MainFrame : public wxFrame {
   void OnQuit(wxCommandEvent& event);
   void OnAbout(wxCommandEvent& event);
   void OnPaint(wxPaintEvent& event);
+  std::thread graphics_thread;
 
  private:
-  DECLARE_EVENT_TABLE()
-  VulkanWindow* vulkan_window;
 };

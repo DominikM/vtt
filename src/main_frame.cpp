@@ -3,18 +3,13 @@
 #include "tabs_window.h"
 #include "wx/event.h"
 #include "wx/sizer.h"
-#include <cstddef>
-
-BEGIN_EVENT_TABLE(MainFrame, wxFrame)
-EVT_MENU(wxID_EXIT, MainFrame::OnQuit)
-END_EVENT_TABLE()
+#include <thread>
 
 void MainFrame::OnQuit(wxCommandEvent& event) {
   Close();
 }
 
 MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) {
-  SetDoubleBuffered(false);
   wxMenu *helpMenu = new wxMenu();
   wxMenuBar *menuBar = new wxMenuBar();
   menuBar->Append(helpMenu, wxT("&Help"));
@@ -23,7 +18,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxHORIZONTAL);
   
-  vulkan_window = new VulkanWindow(this);
+  VulkanWindow *vulkan_window = new VulkanWindow(this);
   mainSizer->Add(
       vulkan_window,
       wxSizerFlags(1).Expand());
@@ -35,9 +30,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
 
   SetSizerAndFit(mainSizer);
 
-  Bind(wxEVT_PAINT, &MainFrame::OnPaint, this);
-}
+  printf("vulkan window pos %d %d\n", vulkan_window->GetPosition().x, vulkan_window->GetPosition().y);
 
-void MainFrame::OnPaint(wxPaintEvent& event) {
-  vulkan_window->OnPaint(event);
+  graphics_thread = std::thread(&VulkanWindow::run_graphics_loop, vulkan_window);
 }

@@ -1,5 +1,4 @@
 #include "vulkan_window.h"
-#include "wx/dcclient.h"
 #include "wx/event.h"
 #include <cstddef>
 #include <cstdint>
@@ -24,13 +23,65 @@
 
 void handle_registry(void* data, struct wl_registry* registry, uint32_t name,
 			    const char* interface, uint32_t version) {
-    VulkanWindow *vk = (VulkanWindow *) data;
+    struct wl_subcompositor** subcompositor = (struct wl_subcompositor**) data;
     if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
-	vk->subcompositor = (struct wl_subcompositor*) wl_registry_bind(registry, name, &wl_subcompositor_interface, 1);
+	*subcompositor = (struct wl_subcompositor*) wl_registry_bind(registry, name, &wl_subcompositor_interface, 1);
     }
 }
 
 VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
+    Bind(wxEVT_SIZE, &VulkanWindow::on_resize, this);
+}
+
+void VulkanWindow::create_wayland_surface(GdkDisplay* gdk_display, GdkWindow* gdk_window) {
+    wl_surface* wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
+    wl_display* wl_display = gdk_wayland_display_get_wl_display(gdk_display);
+    wl_registry* registry = wl_display_get_registry(wl_display);
+
+    struct wl_registry_listener registry_listener = {
+	.global = &handle_registry
+    };
+
+    struct wl_subcompositor* subcompositor;
+    wl_registry_add_listener(registry, &registry_listener, &subcompositor);
+    wl_display_roundtrip(wl_display);
+
+    wl_compositor* compositor = gdk_wayland_display_get_wl_compositor(gdk_display);
+    struct wl_surface* subsurface_surface = wl_compositor_create_surface(compositor);
+    struct wl_subsurface* subsurface_subsurface = wl_subcompositor_get_subsurface(subcompositor, subsurface_surface, wl_surface);
+
+    wl_subsurface_set_position(subsurface_subsurface, GetScreenPosition().x, GetScreenPosition().y);
+
+    wl_surface_commit(subsurface_surface);
+    wl_display_roundtrip(wl_display);
+    wl_surface_commit(subsurface_surface);
+
+    VkWaylandSurfaceCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    createInfo.pNext = nullptr;
+    createInfo.flags = 0;
+    createInfo.display = wl_display;
+    createInfo.surface = subsurface_surface;
+
+    if (vkCreateWaylandSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
+	throw std::runtime_error("failed to create wayland surface!");
+    }
+}
+
+void VulkanWindow::create_xorg_surface(GdkDisplay* gdk_display, GdkWindow* gdk_window) {
+    VkXlibSurfaceCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+    createInfo.pNext = nullptr;
+    createInfo.flags = 0;
+    createInfo.dpy = gdk_x11_display_get_xdisplay(gdk_display);
+    createInfo.window = gdk_x11_window_get_xid(gdk_window);
+
+    if (vkCreateXlibSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
+	throw std::runtime_error("failed to create xlib surface");
+    }
+}
+
+void VulkanWindow::initialize() {
     vkb::InstanceBuilder builder;
     auto inst_ret = builder.set_app_name("Vulkan VTT Canvas")
 	.request_validation_layers()
@@ -42,48 +93,15 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     }
     vkb_instance = inst_ret.value();
 
-    
     GtkWidget *gtk_widget = GetHandle();
-    gtk_widget_realize(gtk_widget);
     GdkWindow *gdk_window = gtk_widget_get_window(gtk_widget);
-    gdk_display = gtk_widget_get_display(gtk_widget);
+    GdkDisplay *gdk_display = gtk_widget_get_display(gtk_widget);
 
-    wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
-    wl_display = gdk_wayland_display_get_wl_display(gdk_display);
-    wl_registry *registry = wl_display_get_registry(wl_display);
-
-    struct wl_registry_listener registry_listener = {
-	.global = &handle_registry
-    };
-
-    wl_registry_add_listener(registry, &registry_listener, this);
-    wl_display_roundtrip(wl_display);
-
-    struct wl_compositor* compositor = gdk_wayland_display_get_wl_compositor(gdk_display);
-    subsurface_surface = wl_compositor_create_surface(compositor);
-    subsurface_subsurface = wl_subcompositor_get_subsurface(subcompositor, subsurface_surface, wl_surface);
-
-    VkWaylandSurfaceCreateInfoKHR createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext = nullptr;
-    createInfo.flags = 0;
-    createInfo.display = wl_display;
-    createInfo.surface = subsurface_surface;
-
-    if (vkCreateWaylandSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
-	throw std::runtime_error("failed to create window surface!");
+    if (GDK_IS_WAYLAND_DISPLAY(gdk_display)) {
+	create_wayland_surface(gdk_display, gdk_window);
+    } else if (GDK_IS_X11_DISPLAY(gdk_display)) {
+	create_xorg_surface(gdk_display, gdk_window);
     }
-
-    // VkXlibSurfaceCreateInfoKHR createInfo{};
-    // createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-    // createInfo.pNext = nullptr;
-    // createInfo.flags = 0;
-    // createInfo.dpy = gdk_x11_display_get_xdisplay(gdk_display);
-    // createInfo.window = gdk_x11_window_get_xid(gdk_window);
-
-    // if (vkCreateXlibSurfaceKHR(vkb_instance.instance, &createInfo, nullptr, &vk_surface) != VK_SUCCESS) {
-    // 	throw std::runtime_error("blah");
-    // }
 
     vkb::PhysicalDeviceSelector selector{ vkb_instance };
     auto phys_ret = selector.set_surface(vk_surface)
@@ -119,8 +137,6 @@ VulkanWindow::VulkanWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY) {
     create_command_pool();
     create_command_buffers();
     create_sync_objects();
-
-    Bind(wxEVT_SIZE, &VulkanWindow::OnResize, this);
 }
 
 VulkanWindow::~VulkanWindow() {
@@ -147,7 +163,7 @@ VulkanWindow::~VulkanWindow() {
 void VulkanWindow::create_swapchain() {
     vkb::SwapchainBuilder swapchain_builder{ vkb_device };
     auto swap_ret = swapchain_builder
-	.set_desired_extent(200, 200)
+	.set_desired_extent(GetSize().GetWidth(), GetSize().GetHeight())
 	.set_old_swapchain(vkb_swapchain)
 	.build();
     if (!swap_ret){
@@ -157,8 +173,7 @@ void VulkanWindow::create_swapchain() {
     vkb_swapchain = swap_ret.value();
 }
 
-void VulkanWindow::OnPaint(wxPaintEvent& event) {
-    printf("hello from OnPaint\n");
+void VulkanWindow::draw_frame() {
     vkWaitForFences(vkb_device.device, 1, &in_flight_fences[current_frame], VK_TRUE, UINT64_MAX);
     uint32_t image_index;
     VkResult result = vkAcquireNextImageKHR(
@@ -220,8 +235,6 @@ void VulkanWindow::OnPaint(wxPaintEvent& event) {
     }
 
     current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
-    printf("done with paint\n");
-    //wl_surface_commit(wl_surface);
 }
 
 void VulkanWindow::recreate_swapchain() {
@@ -445,7 +458,6 @@ void VulkanWindow::create_frame_buffers() {
     framebuffers.resize(image_views.size());
 
     for (size_t i = 0; i < image_views.size(); i++) {
-	printf("hello from framebuffer creation\n");
 	VkImageView attachments[] = { image_views[i] };
 
         VkFramebufferCreateInfo framebuffer_info = {};
@@ -472,7 +484,6 @@ void VulkanWindow::create_command_pool() {
 	throw std::runtime_error("can't create command pool");
     }
 
-    printf("created command pool\n");
 }
 
 void VulkanWindow::create_command_buffers() {
@@ -543,7 +554,7 @@ void VulkanWindow::create_sync_objects() {
 
     VkSemaphoreCreateInfo semaphore_info = {};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
+    int a =5 ;
     VkFenceCreateInfo fence_info = {};
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -557,17 +568,17 @@ void VulkanWindow::create_sync_objects() {
     }
 }
 
-void VulkanWindow::OnResize(wxSizeEvent& event) {
-    resized = true;
-    printf("hello from OnResize\n");
-    wxSize size = GetSize();
-    if (size.GetWidth() == 0 || size.GetHeight() == 0) {
-        return;
+void VulkanWindow::run_graphics_loop() {
+    initialize();
+    while (true) {
+	draw_frame();
+	if (resized) {
+	    recreate_swapchain();
+	    resized = false;
+	}
     }
-    recreate_swapchain();
-    //wxRect refreshRect(size);
-    //RefreshRect(refreshRect, false);
-    printf("done with resize\n");
-    resized = false;
-    wl_surface_commit(wl_surface);
+}
+
+void VulkanWindow::on_resize(wxSizeEvent& event) {
+    resized = true;
 }

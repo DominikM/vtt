@@ -8,21 +8,20 @@
 #include <gtk-3.0/gtk/gtk.h>
 #include <wx/nativewin.h>
 
-const int MAX_FRAMES_IN_FLIGHT = 1;
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 class VulkanWindow : public wxWindow {
 public:
     VulkanWindow(wxWindow *parent);
     ~VulkanWindow();
-    void OnPaint(wxPaintEvent& event);
+    void initialize();
+    void draw_frame();
+    void run_graphics_loop();
+    void on_resize(wxSizeEvent& event);
+
     struct wl_subcompositor* subcompositor;
-    struct wl_subsurface* subsurface_subsurface;
-    struct wl_surface* subsurface_surface;
+
 private:
-    GdkDisplay* gdk_display;
-    struct wl_display* wl_display;
-    struct wl_surface* wl_surface;
-    
     vkb::Instance vkb_instance;
     vkb::Device vkb_device;
     vkb::Swapchain vkb_swapchain;
@@ -45,6 +44,7 @@ private:
     GtkWidget *gtk_widget;
     bool resized = false;
 
+
     void create_shaders();
     void create_render_pass();
     void create_graphics_pipeline();
@@ -55,6 +55,6 @@ private:
     void create_swapchain();
     void recreate_swapchain();
 
-
-    void OnResize(wxSizeEvent& event);
+    void create_wayland_surface(GdkDisplay* gdk_display, GdkWindow* gdk_window);
+    void create_xorg_surface(GdkDisplay* gdk_display, GdkWindow* gdk_window);
 };
