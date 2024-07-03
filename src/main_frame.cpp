@@ -1,9 +1,7 @@
 #include "main_frame.h"
-#include "canvas.h"
+
 #include "tabs_window.h"
-#include "wx/event.h"
-#include "wx/sizer.h"
-#include <thread>
+#include "vulkan_window.h"
 
 void MainFrame::OnQuit(wxCommandEvent& event) {
   Close();
@@ -30,7 +28,5 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
 
   SetSizerAndFit(mainSizer);
 
-  printf("vulkan window pos %d %d\n", vulkan_window->GetPosition().x, vulkan_window->GetPosition().y);
-
-  graphics_thread = std::thread(&VulkanWindow::run_graphics_loop, vulkan_window);
+  vulkan_window->initialize();
 }

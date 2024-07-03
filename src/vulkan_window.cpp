@@ -1,24 +1,15 @@
 #include "vulkan_window.h"
-#include "wx/event.h"
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <fstream>
-#include <iostream>
-#include <stdexcept>
 
-#include <string>
-#include <vulkan/vulkan_core.h>
-#include <vulkan/vulkan_wayland.h>
-#include "VkBootstrap.h"
-#include "wx/gdicmn.h"
+#include <chrono>
+#include <fstream>
+#include <ratio>
+#include <thread>
+
 #include <gdk/gdkwayland.h>
 #include <gdk/gdkx.h>
-#include <X11/Xlib.h>
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_wayland.h>
 #include <vulkan/vulkan_xlib.h>
-#include <vulkan/vulkan_core.h>
-#include <wayland-client-core.h>
-#include <wayland-client-protocol.h>
 #include <wayland-client.h>
 
 void handle_registry(void* data, struct wl_registry* registry, uint32_t name,
@@ -94,6 +85,7 @@ void VulkanWindow::initialize() {
     vkb_instance = inst_ret.value();
 
     GtkWidget *gtk_widget = GetHandle();
+    gtk_widget_realize(gtk_widget);
     GdkWindow *gdk_window = gtk_widget_get_window(gtk_widget);
     GdkDisplay *gdk_display = gtk_widget_get_display(gtk_widget);
 
@@ -137,6 +129,8 @@ void VulkanWindow::initialize() {
     create_command_pool();
     create_command_buffers();
     create_sync_objects();
+
+    graphics_thread = std::thread(&VulkanWindow::run_graphics_loop, this);
 }
 
 VulkanWindow::~VulkanWindow() {
@@ -569,13 +563,16 @@ void VulkanWindow::create_sync_objects() {
 }
 
 void VulkanWindow::run_graphics_loop() {
-    initialize();
+    std::chrono::duration<double, std::ratio<1, 60>> hz60(1.0);
+    
     while (true) {
-	draw_frame();
+	auto start = std::chrono::high_resolution_clock::now();
 	if (resized) {
 	    recreate_swapchain();
 	    resized = false;
 	}
+	draw_frame();
+	std::this_thread::sleep_for(hz60 - (std::chrono::high_resolution_clock::now() - start));
     }
 }
 
