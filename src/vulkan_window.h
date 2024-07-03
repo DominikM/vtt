@@ -37,6 +37,7 @@ private:
     size_t current_frame = 0;
     GtkWidget *gtk_widget;
     bool resized = false;
+    bool running = false;
     std::thread graphics_thread;
 
     void create_shaders();

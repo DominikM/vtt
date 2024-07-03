@@ -130,15 +130,21 @@ void VulkanWindow::initialize() {
     create_command_buffers();
     create_sync_objects();
 
+    running = true;
     graphics_thread = std::thread(&VulkanWindow::run_graphics_loop, this);
 }
 
 VulkanWindow::~VulkanWindow() {
+    running = false;
+    vkDeviceWaitIdle(vkb_device.device);
     for (auto semaphore: available_semaphores) {
 	vkDestroySemaphore(vkb_device.device, semaphore, nullptr);
     }
     for (auto semaphore: finished_semaphore) {
 	vkDestroySemaphore(vkb_device.device, semaphore, nullptr);
+    }
+    for (auto fence: in_flight_fences) {
+	vkDestroyFence(vkb_device.device, fence, nullptr);
     }
     vkDestroyCommandPool(vkb_device.device, command_pool, nullptr);
     for (VkFramebuffer fb: framebuffers) {
@@ -152,6 +158,8 @@ VulkanWindow::~VulkanWindow() {
     vkb::destroy_device(vkb_device);
     vkb::destroy_surface(vkb_instance, vk_surface);
     vkb::destroy_instance(vkb_instance);
+
+    graphics_thread.join();
 }
 
 void VulkanWindow::create_swapchain() {
@@ -551,7 +559,7 @@ void VulkanWindow::create_sync_objects() {
 void VulkanWindow::run_graphics_loop() {
     std::chrono::duration<double, std::ratio<1, 60>> hz60(1.0);
     
-    while (true) {
+    while (running) {
 	auto start = std::chrono::high_resolution_clock::now();
 	if (resized) {
 	    recreate_swapchain();
