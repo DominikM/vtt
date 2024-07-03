@@ -356,25 +356,6 @@ void VulkanWindow::create_graphics_pipeline() {
     input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     input_assembly.primitiveRestartEnable = VK_FALSE;
 
-    VkViewport viewport = {};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float) vkb_swapchain.extent.width;
-    viewport.height = (float) vkb_swapchain.extent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor = {};
-    scissor.offset = { 0, 0 };
-    scissor.extent = vkb_swapchain.extent;
-
-    VkPipelineViewportStateCreateInfo viewport_state = {};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.pViewports = &viewport;
-    viewport_state.scissorCount = 1;
-    viewport_state.pScissors = &scissor;
-
     VkPipelineRasterizationStateCreateInfo rasterizer = {};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.depthClampEnable = VK_FALSE;
@@ -421,6 +402,11 @@ void VulkanWindow::create_graphics_pipeline() {
     dynamic_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_info.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
     dynamic_info.pDynamicStates = dynamic_states.data();
+
+    VkPipelineViewportStateCreateInfo viewport_state{};
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
 
     VkGraphicsPipelineCreateInfo pipeline_info = {};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -514,8 +500,8 @@ void VulkanWindow::create_command_buffers() {
         VkViewport viewport = {};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = (float) vkb_swapchain.extent.width;
-        viewport.height = (float) vkb_swapchain.extent.height;
+        viewport.width = 1000.0f;
+        viewport.height = 1000.0f;
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
