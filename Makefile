@@ -5,7 +5,7 @@ SRC_DIRS := ./src
 SHADER_DIR := ./shaders
 
 WX_CXXFLAGS := $(shell wx-config --cxxflags)
-WX_LIBS := $(shell wx-config --libs)
+WX_LIBS := $(shell wx-config --libs core,base,aui)
 
 GTK_CXXFLAGS := $(shell pkg-config --cflags gtk+-3.0)
 GTK_LIBS := $(shell pkg-config --libs gtk+-3.0)

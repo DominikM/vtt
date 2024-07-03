@@ -3,6 +3,9 @@
 #include "tabs_window.h"
 #include "vulkan_window.h"
 
+#include <wx/aui/aui.h>
+#include <wx/aui/framemanager.h>
+
 void MainFrame::OnQuit(wxCommandEvent& event) {
   Close();
 }
@@ -14,19 +17,17 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(nullptr, wxID_ANY, title) 
     
   SetMenuBar(menuBar);
 
-  wxBoxSizer *mainSizer = new wxBoxSizer(wxHORIZONTAL);
+  wxAuiManager *manager = new wxAuiManager(this);
   
   VulkanWindow *vulkan_window = new VulkanWindow(this);
-  mainSizer->Add(
-      vulkan_window,
-      wxSizerFlags(1).Expand());
+  manager->AddPane(vulkan_window, wxCENTER);
 
+  wxAuiPaneInfo tabs_window_pi;
+  tabs_window_pi.MinSize(wxSize(400, 400)).Direction(wxRight);
   TabsWindow *tabs_window = new TabsWindow(this);
-  mainSizer->Add(
-      tabs_window,
-      wxSizerFlags(0).Expand());
+  manager->AddPane(tabs_window, tabs_window_pi);
 
-  SetSizerAndFit(mainSizer);
+  manager->Update();
 
   vulkan_window->initialize();
 }
